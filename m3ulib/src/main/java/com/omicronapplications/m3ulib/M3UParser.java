@@ -1,6 +1,7 @@
 package com.omicronapplications.m3ulib;
 
 import android.content.Context;
+import android.os.Build;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -15,28 +16,54 @@ import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 
 public class M3UParser {
+    public static final int STORAGE_ILLEGAL = -1;
+    public static final int STORAGE_INTERNAL = 0;
+    public static final int STORAGE_EXTERNAL_1 = 1;
+    public static final int STORAGE_EXTERNAL_2 = 2;
     private static final String TAG = "M3UParser";
     private final Context mContext;
     private File mList;
     private ArrayList<String> mSongs;
-    private boolean mExternal;
+    private int mStorage;
 
     public M3UParser(Context context) {
         mContext = context;
         mList = null;
         mSongs = null;
-        mExternal = false;
+        mStorage = STORAGE_ILLEGAL;
     }
 
-    public void load(String name, boolean external) {
-        File dir;
+    public void load(String name, int storage) {
+        File dir = null;
         if ((mContext != null) && (name != null)) {
-            if (external) {
-                dir = mContext.getExternalFilesDir(null);
-            } else {
-                dir = mContext.getFilesDir();
+            switch (storage) {
+                case STORAGE_INTERNAL:
+                    dir = mContext.getFilesDir();
+                    break;
+                case STORAGE_EXTERNAL_1:
+                    dir = mContext.getExternalFilesDir(null);
+                    break;
+                case STORAGE_EXTERNAL_2:
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                        File[] externals = mContext.getExternalFilesDirs(null);
+                        if (externals != null && externals.length > 1 && externals[1] != null) {
+                            dir = externals[1];
+                        } else {
+                            Log.w(TAG, "load: storage not available " + externals);
+                        }
+                    } else {
+                        Log.w(TAG, "load: Not supported in SDK version " + Build.VERSION.SDK_INT);
+                    }
+                    break;
+                default:
+                    Log.w(TAG, "load: storage not supported " + storage);
+                    break;
             }
-            mExternal = external;
+            if (dir == null) {
+                Log.e(TAG, "load: invalid storage " + storage);
+                return;
+            }
+            mStorage = storage;
             mList = new File(dir, name);
             if (!mList.exists()) {
                 try {
@@ -52,8 +79,7 @@ public class M3UParser {
     }
 
     public void load(String name) {
-        File dir = mContext.getExternalFilesDir(null);
-        mExternal = (name != null) && (dir != null) && name.contains(dir.getAbsolutePath());
+        mStorage = inStorage(name);
         mList = new File(name);
         if (!mList.exists()) {
             try {
@@ -69,13 +95,15 @@ public class M3UParser {
 
     public void load(File list) {
         mList = list;
-        File dir = mContext.getExternalFilesDir(null);
-        mExternal = (list != null) && (dir != null) && list.getAbsolutePath().contains(dir.getAbsolutePath());
-        if ((mList != null) && !mList.exists()) {
-            try {
-                mList.createNewFile();
-            } catch (IOException e) {
-                Log.e(TAG, e.getMessage());
+        if (mList != null) {
+            String name = list.getAbsolutePath();
+            mStorage = inStorage(name);
+            if (!mList.exists()) {
+                try {
+                    mList.createNewFile();
+                } catch (IOException e) {
+                    Log.e(TAG, e.getMessage());
+                }
             }
         }
         if (!readSongs()) {
@@ -240,11 +268,33 @@ public class M3UParser {
             Log.e(TAG, "writeSongs: no song array");
         } else {
             try {
-                File dir;
-                if (mExternal) {
-                    dir = mContext.getExternalCacheDir();
-                } else {
-                    dir = mContext.getCacheDir();
+                File dir = null;
+                switch (mStorage) {
+                    case STORAGE_INTERNAL:
+                        dir = mContext.getCacheDir();
+                        break;
+                    case STORAGE_EXTERNAL_1:
+                        dir = mContext.getExternalCacheDir();
+                        break;
+                    case STORAGE_EXTERNAL_2:
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                            File[] externals = mContext.getExternalCacheDirs();
+                            if (externals != null && externals.length > 1 && externals[1] != null) {
+                                dir = externals[1];
+                            } else {
+                                Log.w(TAG, "writeSongs: storage not available " + externals);
+                            }
+                        } else {
+                            Log.w(TAG, "writeSongs: Not supported in SDK version " + Build.VERSION.SDK_INT);
+                        }
+                        break;
+                    default:
+                        Log.w(TAG, "writeSongs: storage not supported " + mStorage);
+                        break;
+                }
+                if (dir == null) {
+                    Log.e(TAG, "writeSongs: invalid storage " + mStorage);
+                    return false;
                 }
                 File tempList = File.createTempFile("m3u", "tmp", dir);
                 FileOutputStream os = new FileOutputStream(tempList);
@@ -282,5 +332,40 @@ public class M3UParser {
 
     private File getFile(String song) {
         return new File(song);
+    }
+
+
+    private boolean isValidName(String name) {
+        return (name != null) && !name.isEmpty();
+    }
+
+    private int inStorage(String name) {
+        int storage = STORAGE_ILLEGAL;
+        if (!isValidName(name)) {
+            Log.w(TAG, "inStorage: Illegal file " + name);
+            return storage;
+        }
+        File dir = mContext.getFilesDir();
+        if (dir != null) {
+            if (name.startsWith(dir.getAbsolutePath())) {
+                storage = STORAGE_INTERNAL;
+            }
+        }
+        dir = mContext.getExternalFilesDir(null);
+        if (storage == STORAGE_ILLEGAL && dir != null) {
+            if (name.startsWith(dir.getAbsolutePath())) {
+                storage = STORAGE_EXTERNAL_1;
+            }
+        }
+        if (storage == STORAGE_ILLEGAL && Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            File[] externals = mContext.getExternalFilesDirs(null);
+            if (externals != null && externals.length > 1 && externals[1] != null) {
+                dir = externals[1];
+                if (name.startsWith(dir.getAbsolutePath())) {
+                    storage = STORAGE_EXTERNAL_2;
+                }
+            }
+        }
+        return storage;
     }
 }

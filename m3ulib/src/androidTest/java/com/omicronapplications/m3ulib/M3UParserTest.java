@@ -88,7 +88,7 @@ public class M3UParserTest {
     @Test
     public void testSongs() {
         mParser = new M3UParser(mAppContext);
-        mParser.load(TEST_M3U, false);
+        mParser.load(TEST_M3U, M3UParser.STORAGE_INTERNAL);
 
         assertFalse(mParser.songExists(mSong1));
         assertFalse(mParser.songExists(mSong2));
