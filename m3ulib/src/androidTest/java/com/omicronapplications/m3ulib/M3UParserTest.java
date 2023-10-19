@@ -34,7 +34,7 @@ public class M3UParserTest {
     private static final String TEST_SONG1 = "song.d00";
     private static final String TEST_PATH2 = "/some other/longer path";
     private static final String TEST_SONG2 = "some song.adl";
-    private static final String TEST_PATH3 = "";
+    private static final String TEST_PATH3 = "root";
     private static final String TEST_SONG3 = "another song.s3m";
     private static final String M3U_FILE =
                     "#EXTM3U" + System.getProperty("line.separator") +
@@ -54,6 +54,7 @@ public class M3UParserTest {
     private M3UParser mParser;
     private M3UCallback mCallback;
     private CountDownLatch mLatch;
+    boolean mLoaded;
     List<M3UFile> mSongs;
     String mStr;
 
@@ -70,6 +71,12 @@ public class M3UParserTest {
     }
 
     private class M3UCallback implements IM3UCallback {
+        @Override
+        public void onM3ULoaded(boolean isLoaded) {
+            mLoaded = isLoaded;
+            mLatch.countDown();
+        }
+
         @Override
         public void onM3UList(List<M3UFile> songs) {
             mSongs = songs;
@@ -89,7 +96,6 @@ public class M3UParserTest {
     }
 
     private void await() {
-        mLatch = new CountDownLatch(1);
         try {
             assertTrue(mLatch.await(TEST_TIMEOUT, TimeUnit.MILLISECONDS));
         } catch (InterruptedException e) {
@@ -102,8 +108,7 @@ public class M3UParserTest {
         mAppContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
         File filesDir = mAppContext.getFilesDir();
         mEmptyM3U = new File(filesDir, EMPTY_M3U);
-        File cacheDir = mAppContext.getCacheDir();
-        mTestM3U = fileFromString(cacheDir, TEST_M3U, M3U_FILE);
+        mTestM3U = fileFromString(filesDir, TEST_M3U, M3U_FILE);
         mCallback = new M3UCallback();
     }
 
@@ -116,57 +121,73 @@ public class M3UParserTest {
     @Test
     public void testSongs() {
         mParser = new M3UParser(mAppContext, mCallback);
+        mLatch = new CountDownLatch(2);
         mParser.load(EMPTY_M3U, M3UParser.STORAGE_INTERNAL);
         await();
+        assertTrue(mLoaded);
         assertTrue(mParser.isLoaded());
 
+        mLatch = new CountDownLatch(1);
         mParser.listSongs();
         await();
         assertFalse(mParser.songExists(mSongs, TEST_M3U1));
         assertFalse(mParser.songExists(mSongs, TEST_M3U2));
         assertFalse(mParser.songExists(mSongs, TEST_M3U3));
 
+        mLatch = new CountDownLatch(1);
         mParser.addSong(TEST_M3U1);
         await();
+
+        mLatch = new CountDownLatch(1);
         mParser.listSongs();
         await();
-        mParser.songExists(mSongs, TEST_M3U1);
         assertTrue(mParser.songExists(mSongs, TEST_M3U1));
         assertEquals(0, mParser.songIndex(mSongs, TEST_M3U1));
 
+        mLatch = new CountDownLatch(1);
         mParser.addSong(TEST_M3U2);
         await();
+
+        mLatch = new CountDownLatch(1);
         mParser.listSongs();
         await();
         assertTrue(mParser.songExists(mSongs, TEST_M3U2));
         assertEquals(1, mParser.songIndex(mSongs, TEST_M3U2));
 
+        mLatch = new CountDownLatch(1);
         mParser.addSong(TEST_M3U3);
-        await();
-        mParser.listSongs();
         await();
         assertTrue(mParser.songExists(mSongs, TEST_M3U3));
         assertEquals(2, mParser.songIndex(mSongs, TEST_M3U3));
 
+        mLatch = new CountDownLatch(1);
+        mParser.listSongs();
+        await();
         assertNotNull(mSongs);
         assertEquals(3, mSongs.size());
 
+        mLatch = new CountDownLatch(1);
         mParser.dump();
         await();
         assertNotNull(mStr);
 
+        mLatch = new CountDownLatch(2);
         mParser.removeSong(TEST_M3U1);
-        await();
         mParser.listSongs();
         await();
         assertFalse(mParser.songExists(mSongs, TEST_M3U1));
 
+        mLatch = new CountDownLatch(1);
         mParser.removeSong(TEST_M3U2);
+        await();
         assertFalse(mParser.songExists(mSongs, TEST_M3U2));
 
+        mLatch = new CountDownLatch(1);
         mParser.removeSong(TEST_M3U3);
+        await();
         assertFalse(mParser.songExists(mSongs, TEST_M3U3));
 
+        mLatch = new CountDownLatch(1);
         mParser.unload();
         await();
         assertTrue(mEmptyM3U.exists());
@@ -175,10 +196,12 @@ public class M3UParserTest {
     @Test
     public void testM3U() {
         mParser = new M3UParser(mAppContext, mCallback);
+        mLatch = new CountDownLatch(2);
         mParser.load(mTestM3U);
         await();
         assertTrue(mParser.isLoaded());
 
+        mLatch = new CountDownLatch(1);
         mParser.listSongs();
         await();
         assertNotNull(mSongs);
@@ -193,18 +216,29 @@ public class M3UParserTest {
         assertTrue(mParser.songExists(mSongs, TEST_PATH3, TEST_SONG3));
         assertEquals(2, mParser.songIndex(mSongs, TEST_PATH3, TEST_SONG3));
 
+        mLatch = new CountDownLatch(1);
         mParser.dump();
         await();
         assertEquals(M3U_FILE, mStr);
 
+        mLatch = new CountDownLatch(1);
         mParser.removeSong(TEST_PATH1, TEST_SONG1);
+        await();
+        mLatch = new CountDownLatch(1);
         mParser.removeSong(TEST_PATH2, TEST_SONG2);
+        await();
+        mLatch = new CountDownLatch(1);
         mParser.removeSong(TEST_PATH3, TEST_SONG3);
+        await();
+
+        mLatch = new CountDownLatch(1);
         mParser.listSongs();
         await();
         assertEquals(0, mSongs.size());
 
+        mLatch = new CountDownLatch(1);
         mParser.unload();
+        await();
         assertTrue(mTestM3U.exists());
    }
 }

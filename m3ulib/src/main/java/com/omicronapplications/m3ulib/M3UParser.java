@@ -28,8 +28,7 @@ import java.util.regex.Pattern;
 public class M3UParser {
     public static final int STORAGE_ILLEGAL = -1;
     public static final int STORAGE_INTERNAL = 0;
-    public static final int STORAGE_EXTERNAL_1 = 1;
-    public static final int STORAGE_EXTERNAL_2 = 2;
+    public static final int STORAGE_EXTERNAL = 1;
     private static final String TAG = "M3UParser";
     private static final String EXTM3U = "#EXTM3U";
     private static final String EXTINF = "#EXTINF";
@@ -96,6 +95,9 @@ public class M3UParser {
                     }
                     readSongs();
                     mLoaded = (mList != null && mList.exists());
+                    if (mCallback != null) {
+                        mCallback.onM3ULoaded(mLoaded);
+                    }
                     break;
 
                 case M3U_UNLOAD:
@@ -103,6 +105,9 @@ public class M3UParser {
                     mList = null;
                     mSongs = null;
                     mLoaded = false;
+                    if (mCallback != null) {
+                        mCallback.onM3ULoaded(mLoaded);
+                    }
                     break;
 
                 case M3U_ADD:
@@ -151,6 +156,7 @@ public class M3UParser {
                     if (mCallback != null) {
                         mCallback.onM3UDump(str);
                     }
+                    break;
 
                 default:
                     Log.w(TAG, "handleMessage: ignored illegal request: " + msg.what);
@@ -218,7 +224,7 @@ public class M3UParser {
             boolean writeSuccessful = false;
             if (mList == null) {
                 Log.e(TAG, "writeSongs: no playlist loaded");
-            } else if (mSongs == null ){
+            } else if (mSongs == null) {
                 Log.e(TAG, "writeSongs: no song array");
             } else {
                 try {
@@ -291,28 +297,24 @@ public class M3UParser {
 
         private File getStorage() {
             File dir = null;
-            switch (mStorage) {
-                case STORAGE_INTERNAL:
-                    dir = mContext.getCacheDir();
-                    break;
-                case STORAGE_EXTERNAL_1:
-                    dir = mContext.getExternalCacheDir();
-                    break;
-                case STORAGE_EXTERNAL_2:
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                        File[] externals = mContext.getExternalCacheDirs();
-                        if (externals != null && externals.length > 1 && externals[1] != null) {
-                            dir = externals[1];
-                        } else {
-                            Log.w(TAG, "getStorage: storage not available " + externals);
-                        }
+            if (mStorage == STORAGE_INTERNAL) {
+                dir = mContext.getCacheDir();
+            } else if (mStorage >= STORAGE_EXTERNAL) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                    int offset = mStorage - STORAGE_EXTERNAL;
+                    File[] externals = mContext.getExternalCacheDirs();
+                    if (externals != null && externals.length > offset && externals[offset] != null) {
+                        dir = externals[offset];
                     } else {
-                        Log.w(TAG, "getStorage: not supported in SDK version " + Build.VERSION.SDK_INT);
+                        Log.w(TAG, "getStorage: storage not available " + mStorage);
                     }
-                    break;
-                default:
-                    Log.w(TAG, "getStorage: storage not supported " + mStorage);
-                    break;
+                } else if (mStorage > STORAGE_EXTERNAL) {
+                    Log.w(TAG, "getStorage: not supported in SDK version " + Build.VERSION.SDK_INT);
+                } else {
+                    dir = mContext.getExternalCacheDir();
+                }
+            } else {
+                Log.w(TAG, "getStorage: storage not supported " + mStorage);
             }
             return dir;
         }
@@ -321,36 +323,33 @@ public class M3UParser {
     public void load(String name, int storage) {
         File dir = null;
         if (name != null) {
-            switch (storage) {
-                case STORAGE_INTERNAL:
-                    dir = mContext.getFilesDir();
-                    break;
-                case STORAGE_EXTERNAL_1:
-                    dir = mContext.getExternalFilesDir(null);
-                    break;
-                case STORAGE_EXTERNAL_2:
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                        File[] externals = mContext.getExternalFilesDirs(null);
-                        if (externals != null && externals.length > 1 && externals[1] != null) {
-                            dir = externals[1];
-                        } else {
-                            Log.w(TAG, "load: storage not available " + externals);
-                        }
+            if (storage == STORAGE_INTERNAL) {
+                dir = mContext.getFilesDir();
+            } else if (storage >= STORAGE_EXTERNAL) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                    int offset = storage - STORAGE_EXTERNAL;
+                    File[] externals = mContext.getExternalCacheDirs();
+                    if (externals != null && externals.length > offset && externals[offset] != null) {
+                        dir = externals[offset];
                     } else {
-                        Log.w(TAG, "load: Not supported in SDK version " + Build.VERSION.SDK_INT);
+                        Log.w(TAG, "load: storage not available " + storage);
                     }
-                    break;
-                default:
-                    Log.w(TAG, "load: storage not supported " + storage);
-                    break;
+                } else if (storage > STORAGE_EXTERNAL) {
+                    Log.w(TAG, "load: Not supported in SDK version " + Build.VERSION.SDK_INT);
+                } else {
+                    dir = mContext.getExternalFilesDir(null);
+                }
+            } else {
+                Log.w(TAG, "load: storage not supported " + storage);
             }
-            if (dir == null) {
-                Log.e(TAG, "load: invalid storage " + storage);
-                return;
-            }
-            File list = new File(dir, name);
-            backgroundLoad(list.getAbsolutePath(), storage);
         }
+
+        if (dir == null) {
+            Log.e(TAG, "load: invalid storage " + storage);
+            return;
+        }
+        File list = new File(dir, name);
+        backgroundLoad(list.getAbsolutePath(), storage);
     }
 
     public void load(String list) {
@@ -443,27 +442,34 @@ public class M3UParser {
             Log.w(TAG, "inStorage: illegal file " + name);
             return storage;
         }
+
         File dir = mContext.getFilesDir();
         if (dir != null) {
             if (name.startsWith(dir.getAbsolutePath())) {
                 storage = STORAGE_INTERNAL;
             }
         }
-        dir = mContext.getExternalFilesDir(null);
-        if (storage == STORAGE_ILLEGAL && dir != null) {
-            if (name.startsWith(dir.getAbsolutePath())) {
-                storage = STORAGE_EXTERNAL_1;
-            }
-        }
+
         if (storage == STORAGE_ILLEGAL && Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             File[] externals = mContext.getExternalFilesDirs(null);
-            if (externals != null && externals.length > 1 && externals[1] != null) {
-                dir = externals[1];
+            if (externals != null && externals.length > 0) {
+                for (int i = 0; i < externals.length; i++) {
+                    dir = externals[i];
+                    if (dir != null && name.startsWith(dir.getAbsolutePath())) {
+                        storage = STORAGE_EXTERNAL + i;
+                        break;
+                    }
+                }
+            }
+        } else if (storage == STORAGE_ILLEGAL) {
+            dir = mContext.getExternalFilesDir(null);
+            if (dir != null) {
                 if (name.startsWith(dir.getAbsolutePath())) {
-                    storage = STORAGE_EXTERNAL_2;
+                    storage = STORAGE_EXTERNAL;
                 }
             }
         }
+
         return storage;
     }
 
