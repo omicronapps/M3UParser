@@ -479,7 +479,9 @@ public class M3UParser {
             if (data != null) {
                 msg.setData(data);
             }
-            mM3UHandler.removeMessages(what);
+            if (what != M3U_ADD && what != M3U_REMOVE) {
+                mM3UHandler.removeMessages(what);
+            }
             mM3UHandler.sendMessage(msg);
         } else {
             Log.e(TAG, "sendMessageToHandler: no handler: " + what);
